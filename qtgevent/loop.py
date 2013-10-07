@@ -7,15 +7,18 @@ import functools
 import os
 import traceback
 from PyQt4 import QtCore, Qt
-QtCore.pyqtRemoveInputHook()
 import socket
 import signal
 import sys
+import gevent
+
+QtCore.pyqtRemoveInputHook()
 
 _signal_rfd, _signal_wfd = socket.socketpair()
 _signal_rfd.setblocking(False); _signal_wfd.setblocking(False)
 atexit.register(_signal_rfd.close)
 atexit.register(_signal_wfd.close)
+signal.signal(signal.SIGINT, signal.SIG_DFL)
 signal.set_wakeup_fd(_signal_wfd.fileno())
 
 class QtLoop(object):
@@ -23,14 +26,9 @@ class QtLoop(object):
     MAXPRI = 2
 
     def __init__(self, flags=None, default=True):
-        if default:
-            self._loop = QtCore.QAbstractEventDispatcher.instance()
-            self._loop.default = True
-        else:
-            self._loop = QtCore.QEventLoop()
-            self._loop.default = False
-        self._loop._poll_handles = {}
-        self._callbacks = []
+        assert(not QtCore.QCoreApplication.startingUp())
+        self._loop = QtCore.QEventLoop()
+        self._loop.default = default
         self._signal_watchers = {}
         self._raised_signal = None 
         self._child_watchers = {}
@@ -43,6 +41,7 @@ class QtLoop(object):
 
     def destroy(self):
         self._watchers.clear()
+        self._child_watchers = {}
         self._raised_signals = []
         self._sigchld_handle = None
         self._loop = None
@@ -61,7 +60,7 @@ class QtLoop(object):
 
     def _default_handle_error(self, context, type, value, tb):
         traceback.print_exception(type, value, tb)
-        # TODO: break out of the event loop
+        self._loop.quit()
 
     def _handle_signal_in_loop(self):
         _signal_rfd.recv(1)
@@ -75,14 +74,15 @@ class QtLoop(object):
         self._raised_signal = signum 
 
     def run(self, nowait=False, once=False):
+        flags = QtCore.QEventLoop.AllEvents #QtCore.QEventLoop.ExcludeUserInputEvents
         if nowait or once:
-          if nowait and not self._loop.hasPendingEvents():
+          if nowait:  #getattr(self._loop, "hasPendingEvents", lambda: False)():
               return
-          self._loop.processEvents()
-        else:
-          if hasattr(self._loop, "exec_"):
-              self._loop.exec_()
-
+          self._loop.processEvents(flags)
+        else: 
+          self._loop.exec_(flags)
+          gevent.get_hub().throw()
+          
     def reinit(self):
         pass
 
