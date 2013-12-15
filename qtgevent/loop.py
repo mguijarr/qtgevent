@@ -29,6 +29,7 @@ class QtLoop(object):
         assert(not QtCore.QCoreApplication.startingUp())
         self._loop = QtCore.QEventLoop()
         self._loop.default = default
+        self.__callback_timers = {}
         self._signal_watchers = {}
         self._raised_signal = None 
         self._child_watchers = {}
@@ -181,17 +182,23 @@ class QtLoop(object):
         signal.signal(signum, self._handle_signal)
         return Signal(self, signum, ref)
 
-    def _execute_callback(self, cb):
+    def _execute_callback(self, cb, timer_id):
         if None in (cb.callback, cb.args):
             return
         try:
             cb.callback(*cb.args)
         finally:
+            self.__callback_timers[timer_id].deleteLater()
+            del self.__callback_timers[timer_id] 
             cb.stop()
 
     def run_callback(self, func, *args):
         cb = Callback(func, args)
-        QtCore.QTimer.singleShot(0, functools.partial(self._execute_callback, cb))
+        callback_timer = QtCore.QTimer()
+        callback_timer.setSingleShot(True)
+        self.__callback_timers[id(callback_timer)]=callback_timer
+        callback_timer.timeout.connect(functools.partial(self._execute_callback, cb, id(callback_timer))) 
+        callback_timer.start(0)
         return cb
 
     def fileno(self):
@@ -285,6 +292,7 @@ class Watcher(object):
 
     def stop(self):
         self.loop._watchers.discard(self)
+        self._handle.deleteLater()
         self._callback = None
 
     def feed(self, revents, callback, *args):
