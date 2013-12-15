@@ -1,8 +1,5 @@
 # coding=utf8
 
-# Copyright (C) 2012 Saúl Ibarra Corretgé <saghul@gmail.com>
-#
-
 __all__ = ['install']
 __version__ = '0.1.0'
 
