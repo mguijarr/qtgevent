@@ -263,6 +263,7 @@ class Watcher(object):
         self.loop = loop
         self._ref = ref
         self._callback = None
+        self._handle = None
 
     @property
     def callback(self):
@@ -292,7 +293,8 @@ class Watcher(object):
 
     def stop(self):
         self.loop._watchers.discard(self)
-        self._handle.deleteLater()
+        if self._handle is not None:
+          self._handle.deleteLater()
         self._callback = None
 
     def feed(self, revents, callback, *args):
@@ -342,8 +344,6 @@ class Timer(Watcher):
         self._after = after
         self._repeat = repeat
         self._should_repeat = False
-        self._handle = QtCore.QTimer(self.loop._loop)
-        self._handle.timeout.connect(self._run_callback)
 
     @property
     def active(self):
@@ -351,12 +351,15 @@ class Timer(Watcher):
 
     def start(self, callback, *args, **kw):
         super(Timer, self).start(callback, *args)
-        if self._handle.isActive():
-            return
+
+        self._handle = QtCore.QTimer(self.loop._loop)
+        self._handle.timeout.connect(self._run_callback)
+
         if kw.get('update', True):
             self.loop.update()
         if self._repeat:
             self._should_repeat = True
+
         self._handle.setSingleShot(True)
         self._handle.start(self._after*1000)
 
@@ -384,15 +387,15 @@ class Timer(Watcher):
 class Idle(Watcher):
     def __init__(self, loop, ref=True):
         super(Idle, self).__init__(loop, ref)
-        self._handle = QtCore.QTimer(self.loop._loop)
-        self._handle.setInterval(0)
 
     def _idle_cb(self, handle):
         self._run_callback()
 
     def start(self, callback, *args):
         super(Idle, self).start(callback, *args)
+        self._handle = QtCore.QTimer(self.loop._loop)
         self._handle.timeout.connect(self._idle_cb)
+        self._handle.setInterval(0)
         self._handle.start() 
 
     def stop(self):
@@ -405,8 +408,6 @@ class Io(Watcher):
         super(Io, self).__init__(loop, ref)
         self._fd = fd
         self._events = self._ev2qt(events)
-        self._handle = QtCore.QSocketNotifier(self._fd, self._events, self.loop._loop)
-        self._handle.setEnabled(False)
 
     @classmethod
     def _ev2qt(cls, events):
@@ -435,6 +436,7 @@ class Io(Watcher):
 
     def start(self, callback, *args, **kw):
         super(Io, self).start(callback, *args)
+        self._handle = QtCore.QSocketNotifier(self._fd, self._events, self.loop._loop)
         self._handle.activated.connect(self._poll_cb)
         self._handle.setEnabled(True)
 
@@ -476,8 +478,6 @@ class Io(Watcher):
 class Async(Watcher):
     def __init__(self, loop, ref=True):
         super(Async, self).__init__(loop, ref)
-        self._handle = QtCore.QObject(self.loop._loop)
-        QtCore.QObject.connect(self._handle, Qt.SIGNAL("notification"), self._async_cb)
 
     @property
     def active(self):
@@ -489,6 +489,8 @@ class Async(Watcher):
 
     def start(self, callback, *args, **kw):
         super(Async, self).start(callback, *args)
+        self._handle = QtCore.QObject(self.loop._loop)
+        QtCore.QObject.connect(self._handle, Qt.SIGNAL("notification"), self._async_cb)
 
     def stop(self):
         super(Async, self).stop()
@@ -508,7 +510,6 @@ class Child(Watcher):
         self._pid = pid
         self.rpid = None
         self.rstatus = None
-        #self._handle = pyuv.Async(self.loop._loop, self._async_cb)
 
     @property
     def active(self):
