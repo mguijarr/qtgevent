@@ -347,6 +347,8 @@ class Timer(Watcher):
 
     @property
     def active(self):
+        if (self._handle == None):
+          return False
         return self._handle.isActive()
 
     def start(self, callback, *args, **kw):
@@ -373,7 +375,8 @@ class Timer(Watcher):
           self._handle.start()
 
     def stop(self):
-        self._handle.stop()
+        if (self._handle != None):
+          self._handle.stop()
         super(Timer, self).stop()
 
     def again(self, callback, *args, **kw):
